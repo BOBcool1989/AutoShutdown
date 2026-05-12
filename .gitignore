@@ -1,0 +1,6 @@
+# PyInstaller build files
+build/
+__pycache__/
+*.spec
+*.pyc
+*.pyo
