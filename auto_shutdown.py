@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-自动关机助手 v2.0.0
-作者：上杉 <windai@qq.com>
+自动关机助手 v2.1.0
+作者：上杉 WeChat: kiceby
 功能：定时关机、系统托盘、开机自启、配置保存、到达时间弹窗确认
 兼容：Windows 7/8/10/11+
 """
@@ -296,7 +296,7 @@ class ShutdownWarningDialog:
         btn_frame.pack(pady=15)
 
         tk.Button(
-            btn_frame, text="取消关机",
+            btn_frame, text="跳过本次",
             font=("Microsoft YaHei", 12, "bold"),
             bg=C['success'], fg="white",
             activebackground=C['success_dim'], activeforeground="white",
@@ -351,9 +351,9 @@ class ShutdownWarningDialog:
 # ==================== 主应用 ====================
 
 class AutoShutdownApp:
-    VERSION = "2.0.0"
+    VERSION = "2.1.0"
     AUTHOR = "上杉"
-    EMAIL = "windai@qq.com"
+    WECHAT = "kiceby"
 
     def __init__(self, root):
         self.root = root
@@ -572,7 +572,7 @@ class AutoShutdownApp:
         # ===== 底部版权 =====
         tk.Label(
             self.root,
-            text="{} <{}>".format(self.AUTHOR, self.EMAIL),
+            text="{}  WeChat: {}".format(self.AUTHOR, self.WECHAT),
             font=("Microsoft YaHei", 8),
             fg=C['text_muted'], bg=C['bg_dark']
         ).pack(side=tk.BOTTOM, pady=(0, 8))
@@ -700,7 +700,7 @@ class AutoShutdownApp:
         ShutdownWarningDialog(
             self.root,
             countdown_seconds=60,
-            on_cancel=self.cancel_shutdown,
+            on_cancel=self._skip_this_shutdown,
             on_confirm=self._perform_shutdown
         )
 
@@ -714,6 +714,34 @@ class AutoShutdownApp:
             subprocess.run(["shutdown", "/s", "/t", "5", "/f"], check=True)
         except Exception:
             messagebox.showerror("错误", "执行关机命令失败，请手动关机")
+            self._reset_ui()
+
+    def _skip_this_shutdown(self):
+        """跳过本次关机，自动顺延到明天同一时间"""
+        # 取消Windows关机计划（如果有）
+        try:
+            subprocess.run(["shutdown", "/a"], check=False)
+        except Exception:
+            pass
+
+        if self.shutdown_time:
+            # 顺延到明天同一时间
+            self.shutdown_time += timedelta(days=1)
+            self.warning_shown = False
+
+            # 更新状态
+            self.status_var.set("将在明天 {} 自动关机".format(self.shutdown_time.strftime('%H:%M')))
+            self.status_label.config(fg=C['success'])
+
+            # 更新托盘提示
+            if self.tray:
+                self.tray.update_tooltip("{} - 明天{}关机".format(APP_TITLE, self.shutdown_time.strftime('%H:%M')))
+                self.tray.show_notification(APP_TITLE, "已跳过本次，明天 {} 再提醒".format(self.shutdown_time.strftime('%H:%M')))
+
+            # 重新启动倒计时线程
+            self.timer_thread = threading.Thread(target=self._countdown_loop, daemon=True)
+            self.timer_thread.start()
+        else:
             self._reset_ui()
 
     def cancel_shutdown(self):
