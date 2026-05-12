@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-自动关机助手 v2.1.0
+自动关机助手 v2.2.0
 作者：上杉 WeChat: kiceby
 功能：定时关机、系统托盘、开机自启、配置保存、到达时间弹窗确认
 兼容：Windows 7/8/10/11+
@@ -351,7 +351,7 @@ class ShutdownWarningDialog:
 # ==================== 主应用 ====================
 
 class AutoShutdownApp:
-    VERSION = "2.1.0"
+    VERSION = "2.2.0"
     AUTHOR = "上杉"
     WECHAT = "kiceby"
 
@@ -396,9 +396,12 @@ class AutoShutdownApp:
         # 关闭处理
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
-        # 如果带 --tray 参数启动，最小化到托盘
+        # 如果带 --tray 参数启动，最小化到托盘并自动开始定时
         if '--tray' in sys.argv:
             self.root.after(200, self.hide_window)
+            # 自动使用保存的配置开始定时关机
+            if self.config.get('auto_start', False):
+                self.root.after(500, self.start_shutdown)
 
     def _center_window(self):
         self.root.update_idletasks()
@@ -433,7 +436,7 @@ class AutoShutdownApp:
         time_input.pack(fill=tk.X, pady=5)
 
         self.hour_var = tk.StringVar(value="23")
-        hour_spin = tk.Spinbox(
+        self.hour_spin = tk.Spinbox(
             time_input, from_=0, to=23, width=4,
             textvariable=self.hour_var,
             font=("Consolas", 18, "bold"),
@@ -444,14 +447,14 @@ class AutoShutdownApp:
             relief=tk.FLAT, highlightthickness=1,
             highlightcolor=C['primary'], highlightbackground=C['border']
         )
-        hour_spin.pack(side=tk.LEFT, padx=(0, 4))
+        self.hour_spin.pack(side=tk.LEFT, padx=(0, 4))
 
         tk.Label(time_input, text=":",
                  font=("Consolas", 20, "bold"),
                  fg=C['text'], bg=C['card']).pack(side=tk.LEFT, padx=4)
 
         self.minute_var = tk.StringVar(value="00")
-        minute_spin = tk.Spinbox(
+        self.minute_spin = tk.Spinbox(
             time_input, from_=0, to=59, width=4,
             textvariable=self.minute_var,
             font=("Consolas", 18, "bold"),
@@ -462,21 +465,24 @@ class AutoShutdownApp:
             relief=tk.FLAT, highlightthickness=1,
             highlightcolor=C['primary'], highlightbackground=C['border']
         )
-        minute_spin.pack(side=tk.LEFT, padx=(4, 0))
+        self.minute_spin.pack(side=tk.LEFT, padx=(4, 0))
 
         # 快捷按钮
-        quick_frame = tk.Frame(time_card, bg=C['card'])
-        quick_frame.pack(fill=tk.X, pady=(12, 0))
+        self.quick_frame = tk.Frame(time_card, bg=C['card'])
+        self.quick_frame.pack(fill=tk.X, pady=(12, 0))
 
+        self.quick_btns = []
         for text, minutes in [("30分钟后", 30), ("1小时后", 60), ("2小时后", 120)]:
-            tk.Button(
-                quick_frame, text=text,
+            btn = tk.Button(
+                self.quick_frame, text=text,
                 font=("Microsoft YaHei", 9),
                 bg=C['primary'], fg="white",
                 activebackground=C['primary_dim'], activeforeground="white",
                 bd=0, padx=12, pady=4, cursor="hand2",
                 command=lambda m=minutes: self._set_quick_time(m)
-            ).pack(side=tk.LEFT, padx=4)
+            )
+            btn.pack(side=tk.LEFT, padx=4)
+            self.quick_btns.append(btn)
 
         # ===== 状态卡片 =====
         status_card = tk.Frame(self.root, bg=C['card'], padx=18, pady=14)
@@ -637,6 +643,11 @@ class AutoShutdownApp:
         # 更新UI
         self.start_btn.config(state=tk.DISABLED)
         self.cancel_btn.config(state=tk.NORMAL)
+        # 禁用时间输入（防止运行时误改）
+        self.hour_spin.config(state=tk.DISABLED)
+        self.minute_spin.config(state=tk.DISABLED)
+        for btn in self.quick_btns:
+            btn.config(state=tk.DISABLED)
         self.status_var.set("将在 {} 自动关机".format(target.strftime('%H:%M')))
         self.status_label.config(fg=C['success'])
 
@@ -741,6 +752,10 @@ class AutoShutdownApp:
             # 重新启动倒计时线程
             self.timer_thread = threading.Thread(target=self._countdown_loop, daemon=True)
             self.timer_thread.start()
+
+            # 自动缩回托盘
+            if self.minimize_var.get():
+                self.root.after(1500, self.hide_window)
         else:
             self._reset_ui()
 
@@ -770,6 +785,11 @@ class AutoShutdownApp:
         self.status_label.config(fg=C['text_dim'])
         self.start_btn.config(state=tk.NORMAL)
         self.cancel_btn.config(state=tk.DISABLED)
+        # 恢复时间输入
+        self.hour_spin.config(state=tk.NORMAL)
+        self.minute_spin.config(state=tk.NORMAL)
+        for btn in self.quick_btns:
+            btn.config(state=tk.NORMAL)
         self.progress_canvas.delete("all")
 
         if self.tray:
